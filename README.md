@@ -35,7 +35,7 @@ LOHRbench_ACT-DP_baseline/
 ## Setup
 
 ```bash
-conda create -n dp python=3.12.12 -y
+conda create -n <environment-name> python=3.12.12 -y
 conda activate <environment-name>
 
 # Install torch
