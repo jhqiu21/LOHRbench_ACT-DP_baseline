@@ -82,7 +82,7 @@ TASK_INSTRUCTIONS = {
 TASK_TYPES = ["active_exploration", "clutter", "super_long_horizon", "tool_using"]
 
 # STRICT requirement
-REQUIRED_H5_SUFFIX = "merged_success_filtered.h5"
+REQUIRED_H5_SUFFIX = "_success_filtered.h5"
 
 STATE_DIM = 9
 ACTION_DIM = 8
