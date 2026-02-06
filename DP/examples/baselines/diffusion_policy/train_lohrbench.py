@@ -136,7 +136,7 @@ class Args:
 
     # Diffusion
     diffusion_step_embed_dim: int = 64
-    unet_dims: List[int] = field(default_factory=lambda: [64, 128, 256, 512])
+    unet_dims: List[int] = field(default_factory=lambda: [32, 64, 128, 256, 512])
     n_groups: int = 8
     num_diffusion_iters: int = 100
 
