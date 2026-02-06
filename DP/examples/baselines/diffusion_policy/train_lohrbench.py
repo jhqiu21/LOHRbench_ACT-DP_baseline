@@ -116,6 +116,8 @@ class Args:
     data_root: str = "/data1/LoHRbench"
     num_traj: Optional[int] = None  # max per task
     cache_dir: str = "./cache_lohrbench_dp"
+    num_dataload_workers: int = 8
+    preload_images: bool = False  # load all images into RAM during init
 
     # CLIP
     clip_model_name: str = "openai/clip-vit-base-patch32"
@@ -406,6 +408,40 @@ class LoHRbenchDiffusionDataset(Dataset):
         self.stats = compute_or_load_stats(all_states, all_actions, stats_cache, args.q_low, args.q_high)
         del all_states, all_actions
 
+        # Per-worker HDF5 handle cache (populated lazily in __getitem__)
+        self._h5_cache: Dict[str, h5py.File] = {}
+
+        # Optional: preload all images into RAM
+        self.base_images: Optional[List[np.ndarray]] = None
+        self.hand_images: Optional[List[np.ndarray]] = None
+        if args.preload_images:
+            tqdm.write("[DATA] Preloading all images into RAM (--preload-images)...")
+            self.base_images = [None] * len(self.trajs)
+            self.hand_images = [None] * len(self.trajs)
+            pbar2 = tqdm(total=len(self.trajs), desc="preload_imgs", dynamic_ncols=True, file=sys.stdout)
+            for ti, (hp, tk, ll, _) in enumerate(self.trajs):
+                with h5py.File(hp, "r") as f:
+                    g = f[tk]
+                    self.base_images[ti] = g["obs"]["sensor_data"]["base_camera"]["rgb"][:]
+                    self.hand_images[ti] = g["obs"]["sensor_data"]["hand_camera"]["rgb"][:]
+                pbar2.update(1)
+            pbar2.close()
+            tqdm.write("[DATA] All images preloaded into RAM.")
+
+    def _get_h5(self, path: str) -> h5py.File:
+        """Return a cached HDF5 file handle (one per worker process)."""
+        if path not in self._h5_cache:
+            self._h5_cache[path] = h5py.File(path, "r")
+        return self._h5_cache[path]
+
+    def __del__(self):
+        for fh in self._h5_cache.values():
+            try:
+                fh.close()
+            except Exception:
+                pass
+        self._h5_cache.clear()
+
     def __len__(self) -> int:
         return len(self.slices)
 
@@ -434,8 +470,14 @@ class LoHRbenchDiffusionDataset(Dataset):
         # now exactly pred_horizon
         assert act_seq.shape[0] == self.args.pred_horizon and act_seq.shape[1] == ACTION_DIM
 
-        # Load images on-the-fly (obs_horizon frames)
-        with h5py.File(h5_path, "r") as f:
+        # Load images
+        if self.base_images is not None:
+            # Preloaded path: read from RAM
+            base_rgb = self.base_images[traj_idx][obs_start:obs_end]
+            hand_rgb = self.hand_images[traj_idx][obs_start:obs_end]
+        else:
+            # On-the-fly path: use cached HDF5 handle
+            f = self._get_h5(h5_path)
             g = f[traj_key]
             base_rgb = g["obs"]["sensor_data"]["base_camera"]["rgb"][obs_start:obs_end]
             hand_rgb = g["obs"]["sensor_data"]["hand_camera"]["rgb"][obs_start:obs_end]
@@ -578,12 +620,15 @@ def main():
     batch_sampler = BatchSampler(sampler, batch_size=args.batch_size, drop_last=True)
     batch_sampler = IterationBasedBatchSampler(batch_sampler, args.total_iters)
 
+    use_workers = args.num_dataload_workers > 0
     train_loader = DataLoader(
         dataset,
         batch_sampler=batch_sampler,
-        num_workers=0,
+        num_workers=args.num_dataload_workers,
         worker_init_fn=lambda wid: worker_init_fn(wid, base_seed=args.seed),
         pin_memory=(device.type == "cuda"),
+        persistent_workers=use_workers,
+        prefetch_factor=2 if use_workers else None,
     )
 
     agent = Agent(args=args, obs_state_dim=STATE_DIM, lang_dim=dataset.clip_dim).to(device)
