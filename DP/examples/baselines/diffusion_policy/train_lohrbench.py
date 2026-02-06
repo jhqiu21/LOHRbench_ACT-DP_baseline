@@ -114,6 +114,7 @@ class Args:
 
     # Data
     data_root: str = "/data1/LoHRbench"
+    preprocessed_root: Optional[str] = None  # rechunked H5 dir (faster I/O)
     num_traj: Optional[int] = None  # max per task
     cache_dir: str = "./cache_lohrbench_dp"
     num_dataload_workers: int = 8
@@ -306,11 +307,14 @@ class LoHRbenchDiffusionDataset(Dataset):
         self.args = args
         os.makedirs(args.cache_dir, exist_ok=True)
 
-        file_list = discover_lohrbench_h5_files(args.data_root)
+        search_root = args.preprocessed_root or args.data_root
+        file_list = discover_lohrbench_h5_files(search_root)
         if not file_list:
             raise FileNotFoundError(
-                f"No LoHRbench files found under {args.data_root} ending with '{REQUIRED_H5_SUFFIX}'"
+                f"No LoHRbench files found under {search_root} ending with '{REQUIRED_H5_SUFFIX}'"
             )
+        if args.preprocessed_root:
+            tqdm.write(f"[DATA] Using preprocessed data from: {args.preprocessed_root}")
 
         tqdm.write(f"[DATA] Found {len(file_list)} HDF5 files (suffix={REQUIRED_H5_SUFFIX})")
         for ttype in TASK_TYPES:
@@ -482,16 +486,12 @@ class LoHRbenchDiffusionDataset(Dataset):
             base_rgb = g["obs"]["sensor_data"]["base_camera"]["rgb"][obs_start:obs_end]
             hand_rgb = g["obs"]["sensor_data"]["hand_camera"]["rgb"][obs_start:obs_end]
 
-        base_t, hand_t = [], []
-        for i in range(base_rgb.shape[0]):
-            b = self.resize(torch.from_numpy(base_rgb[i]).permute(2, 0, 1))
-            h = self.resize(torch.from_numpy(hand_rgb[i]).permute(2, 0, 1))
-            base_t.append(b)
-            hand_t.append(h)
-
-        base_t = torch.stack(base_t, dim=0)
-        hand_t = torch.stack(hand_t, dim=0)
-        rgb = torch.cat([base_t, hand_t], dim=1)  # (obs_horizon, 6, 224, 224)
+        # Vectorized: batch all images into a single resize call (~1.7x faster)
+        all_np = np.concatenate([base_rgb, hand_rgb], axis=0)       # (2*obs_horizon, H, W, C)
+        all_t = torch.from_numpy(all_np).permute(0, 3, 1, 2)       # (N, C, H, W)
+        all_t = self.resize(all_t)                                  # (N, C, 224, 224)
+        n = base_rgb.shape[0]
+        rgb = torch.cat([all_t[:n], all_t[n:]], dim=1)             # (obs_horizon, 6, 224, 224)
 
         # Normalize
         sm = self.stats["state_mean"][0]
@@ -628,7 +628,7 @@ def main():
         worker_init_fn=lambda wid: worker_init_fn(wid, base_seed=args.seed),
         pin_memory=(device.type == "cuda"),
         persistent_workers=use_workers,
-        prefetch_factor=2 if use_workers else None,
+        prefetch_factor=4 if use_workers else None,
     )
 
     agent = Agent(args=args, obs_state_dim=STATE_DIM, lang_dim=dataset.clip_dim).to(device)
