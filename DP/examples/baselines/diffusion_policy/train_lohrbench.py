@@ -656,6 +656,12 @@ def main():
 
     def save_ckpt(tag: str):
         ema.copy_to(ema_agent.parameters())
+        # Copy batch norm buffers (running_mean, running_var, num_batches_tracked)
+        # from trained agent to ema_agent — EMA only tracks parameters, not buffers
+        agent_bufs = dict(agent.named_buffers())
+        for name, buf in ema_agent.named_buffers():
+            if name in agent_bufs:
+                buf.data.copy_(agent_bufs[name].data)
         path = os.path.join(ckpt_dir, f"{tag}.pt")
         torch.save(
             {
