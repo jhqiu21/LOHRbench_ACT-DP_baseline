@@ -61,6 +61,7 @@ from diffusers.training_utils import EMAModel
 
 from diffusion_policy.conditional_unet1d import ConditionalUnet1D
 from diffusion_policy.plain_conv import PlainConv
+from diffusion_policy.resnet_encoder import ResNetEncoder
 from diffusion_policy.utils import IterationBasedBatchSampler, worker_init_fn
 
 
@@ -136,12 +137,14 @@ class Args:
 
     # Diffusion
     diffusion_step_embed_dim: int = 64
-    unet_dims: List[int] = field(default_factory=lambda: [64, 128, 256, 512, 640])
+    unet_dims: List[int] = field(default_factory=lambda: [128, 256, 512])
     n_groups: int = 8
     num_diffusion_iters: int = 100
 
     # Visual encoder
-    visual_feature_dim: int = 256
+    visual_feature_dim: int = 512
+    visual_encoder_type: str = "resnet18"  # "resnet18" or "plain_conv"
+    resnet_pretrained: bool = True
 
     # Normalization
     q_low: float = 0.5
@@ -518,11 +521,19 @@ class Agent(nn.Module):
         self.pred_horizon = args.pred_horizon
         self.act_dim = ACTION_DIM
 
-        self.visual_encoder = PlainConv(
-            in_channels=6,
-            out_dim=args.visual_feature_dim,
-            pool_feature_map=True,
-        )
+        if args.visual_encoder_type == "resnet18":
+            self.visual_encoder = ResNetEncoder(
+                out_dim=args.visual_feature_dim,
+                pretrained=args.resnet_pretrained,
+            )
+        elif args.visual_encoder_type == "plain_conv":
+            self.visual_encoder = PlainConv(
+                in_channels=6,
+                out_dim=args.visual_feature_dim,
+                pool_feature_map=True,
+            )
+        else:
+            raise ValueError(f"Unknown visual_encoder_type: {args.visual_encoder_type}")
 
         global_cond_dim = args.obs_horizon * (args.visual_feature_dim + obs_state_dim) + lang_dim
 
