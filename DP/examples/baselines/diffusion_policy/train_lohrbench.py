@@ -12,8 +12,8 @@ Fixes:
 
 Run:
 python train_lohrbench.py \
-  --data-root /data1/LoHRbench \
-  --run-root /data/haoran/projects \
+  --data-root /path/to/LoHRbench \
+  --run-root ./runs \
   --total-iters 100000 \
   --batch-size 256 \
   --obs-horizon 2 \
@@ -22,8 +22,7 @@ python train_lohrbench.py \
   --save-freq 2000 \
   --log-freq 200 \
   --track \
-  --wandb_project_name LoHRbench \
-  --wandb_entity haoranwh
+  --wandb_project_name LoHRbench
 """
 
 from __future__ import annotations
@@ -114,7 +113,7 @@ class Args:
     run_tags: List[str] = field(default_factory=lambda: ["diffusion_policy", "lohrbench", "language"])
 
     # Data
-    data_root: str = "/data1/LoHRbench"
+    data_root: str = "./data"
     preprocessed_root: Optional[str] = None  # rechunked H5 dir (faster I/O)
     num_traj: Optional[int] = None  # max per task
     cache_dir: str = "./cache_lohrbench_dp"

@@ -16,8 +16,8 @@ Expected: single-image reads drop from ~18 ms to ~0.5-2 ms.
 
 Usage:
   python preprocess_lohrbench.py \
-    --data-root /data1/LoHRbench \
-    --output-root /data1/LoHRbench_rechunked \
+    --data-root /path/to/LoHRbench \
+    --output-root /path/to/LoHRbench_rechunked \
     --compression lzf
 """
 
@@ -275,7 +275,7 @@ def main():
         description="Rechunk LoHRbench HDF5 files for fast random-access reads"
     )
     parser.add_argument("--data-root", type=str, required=True,
-                        help="Original dataset root (e.g., /data1/LoHRbench)")
+                        help="Original dataset root")
     parser.add_argument("--output-root", type=str, required=True,
                         help="Output directory for rechunked files")
     parser.add_argument("--compression", type=str, default="lzf",
